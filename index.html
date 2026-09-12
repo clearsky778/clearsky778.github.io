@@ -780,7 +780,7 @@ footer{text-align:center;padding:2rem;font-size:12px;color:var(--text3);border-t
 <div class="toast" id="toast" role="status" aria-live="polite">저장됐습니다</div>
 <footer>
   개인 투자 참고용 계산기입니다. 예상금액에는 체결가 변동과 수수료가 반영되지 않을 수 있으며, 투자 판단의 최종 책임은 본인에게 있습니다.
-  <span class="app-version">앱 버전 v2026.07.16.19</span>
+  <span class="app-version">앱 버전 v2026.09.12.21</span>
 </footer>
 
 <script>
@@ -1041,7 +1041,7 @@ function priceBasisText(plan){
   const d=new Date(plan.priceBasisAt);
   if(isNaN(d.getTime()))return'현재가 조회 시각: 미확인';
   const label=plan.priceBasisVerified?'시세 기준':'조회 완료';
-  const suffix=plan.priceBasisVerified?'':' · 시세 기준시각 미제공';
+  const suffix=(plan.priceBasisVerified?'':' · 시세 기준시각 미제공')+(plan.priceMarketStatus==='CLOSE'?' · 장 마감 시세':plan.priceMarketStatus==='OPEN'?' · 장중 시세':'');
   return `${label}: ${d.toLocaleString('ko-KR',{year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false})}${suffix}`;
 }
 function isPriceBasisStale(plan){
@@ -1065,7 +1065,7 @@ function formatOrderPlanText(plan){
     `상태: ${statusText(plan.status)}`,
     `예상 순주문: ${(plan.tradeSum<0?'−':'')+fmt(Math.abs(plan.tradeSum))}`,
   ];
-  if(isPriceBasisStale(plan))lines.push('주의: 현재가 조회 후 30분 이상 지났습니다. 주문 전 현재가를 다시 확인하세요.');
+  if(isPriceBasisStale(plan))lines.push('주의: 시세 기준시각(미제공 시 조회시각)이 30분 이상 지났습니다. 주문 전 현재가를 다시 확인하세요.');
   ['sell','buy'].forEach(side=>{
     const label=side==='sell'?'매도':'매수';
     const items=plan.orders.filter(o=>o.side===side);
@@ -1253,7 +1253,7 @@ function syncOrderPlanAutomation(){
 
   const freshnessAt=getPriceFreshnessAt(state[tab]);
   if(isFetchedAtStale(freshnessAt)){
-    if(!activeOrderPlan)renderOrderPlan('현재가 조회 후 30분 이상 지났습니다. 현재가를 다시 불러오거나 주문안 생성을 눌러 확인하세요.');
+    if(!activeOrderPlan)renderOrderPlan('시세 기준시각(미제공 시 조회시각)이 30분 이상 지났습니다. 현재가를 다시 불러오거나 주문안 생성을 눌러 확인하세요.');
     return;
   }
 
@@ -1881,6 +1881,7 @@ function buildOrderPlan(){
     priceBasisType:priceFetchedAt?'auto':'manual',
     priceBasisVerified:!!priceSourceAt,
     priceCheckedAt:priceFetchedAt||'',
+    priceMarketStatus:priceFetchedAt?(s.priceMarketStatus||''):'',
     totalAmount:Math.round(total),
     targetSum:Math.round(targetSum),
     currentSum:Math.round(currentSum),
@@ -1903,7 +1904,7 @@ function createOrderPlan(){
     renderOrderPlan('주문안을 계산하는 중입니다...');
     const freshnessAt=getPriceFreshnessAt(state[tab]);
     if(isFetchedAtStale(freshnessAt)){
-      const ok=confirm('현재가 조회 후 30분 이상 지났습니다. 주문 전 현재가를 다시 불러오는 것을 권장합니다.\n\n그래도 주문안을 생성할까요?');
+      const ok=confirm('시세 기준시각(미제공 시 조회시각)이 30분 이상 지났습니다. 주문 전 현재가를 다시 불러오는 것을 권장합니다.\n\n그래도 주문안을 생성할까요?');
       if(!ok){
         renderOrderPlan('현재가를 다시 불러온 뒤 주문안을 생성하세요.');
         return;
@@ -2018,7 +2019,7 @@ function renderOrderPlan(message){
   const hasSell=plan.orders.some(o=>o.side==='sell');
   const hasBuy=plan.orders.some(o=>o.side==='buy');
   const guide=hasSell&&hasBuy?'<div class="plan-guide">권장 순서: 매도 주문을 먼저 완료한 뒤 매수 주문을 진행하세요. 현금 부족으로 매수 주문이 실패하는 일을 줄일 수 있습니다.</div>':'';
-  const staleGuide=isPriceBasisStale(plan)?'<div class="plan-guide">현재가 확인 후 30분 이상 지났습니다. 주문 전에 현재가를 다시 불러오세요.</div>':'';
+  const staleGuide=isPriceBasisStale(plan)?'<div class="plan-guide">시세 기준시각(미제공 시 조회시각)이 30분 이상 지났습니다. 주문 전에 현재가를 다시 불러오세요.</div>':'';
   view.className='';
   view.innerHTML=`
     <div class="plan-meta">
@@ -2117,12 +2118,12 @@ function compactDateTime(iso){
   return d.toLocaleString('ko-KR',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false});
 }
 
-function fetchTimeText(fetchedAt,sourceAt){
+function fetchTimeText(fetchedAt,sourceAt,marketStatus){
   const fetched=compactDateTime(fetchedAt);
   if(!fetched)return'';
   const source=compactDateTime(sourceAt);
   return source
-    ? `시세 기준 ${source} · 조회 완료 ${fetched}`
+    ? `${marketStatus==='CLOSE'?'장 마감 시세 · ':marketStatus==='OPEN'?'장중 시세 · ':''}시세 기준 ${source} (종목 중 가장 이른 시각) · 조회 완료 ${fetched}`
     : `조회 완료 ${fetched} · 시세 기준시각 미제공`;
 }
 
@@ -2140,7 +2141,52 @@ function parsePricePayload(data){
   if(!data||typeof data!=='object'||Array.isArray(data))throw new Error('현재가 서버 응답 형식이 올바르지 않습니다.');
   const prices=data.prices&&typeof data.prices==='object'&&!Array.isArray(data.prices)?data.prices:data;
   const sourceAt=normalizeApiTimestamp(data.asOf??data.as_of??data.quoteTime??data.quote_time??data.updatedAt??data.timestamp);
-  return {prices,sourceAt};
+  return {prices,sourceAt,marketStatus:['OPEN','CLOSE'].includes(data.marketStatus)?data.marketStatus:''};
+}
+
+async function fetchPricesWithRetry(url,signal,onRetry){
+  for(let attempt=0;attempt<2;attempt++){
+    if(signal.aborted)throw new DOMException('Cancelled','AbortError');
+    const controller=new AbortController();
+    const cancel=()=>controller.abort();
+    signal.addEventListener('abort',cancel,{once:true});
+    const timeout=setTimeout(()=>controller.abort(),35000);
+    try{
+      const response=await fetch(url,{cache:'no-store',signal:controller.signal});
+      if(!response.ok){
+        const error=new Error(`현재가 서버 응답 오류 (${response.status})`);
+        error.retryable=[408,429,500,502,503,504].includes(response.status);
+        throw error;
+      }
+      return await response.json();
+    }catch(error){
+      if(signal.aborted)throw new DOMException('Cancelled','AbortError');
+      const temporary=error.retryable||error.name==='AbortError'||error instanceof TypeError;
+      if(attempt!==0||!temporary)throw error;
+      onRetry();
+    }finally{
+      clearTimeout(timeout);
+      signal.removeEventListener('abort',cancel);
+    }
+  }
+}
+
+function validateRequestedPrices(prices,requestedRows){
+  const updates=[];
+  const failed=[];
+  requestedRows.forEach(item=>{
+    const price=getSafePositiveNumber(prices[item.code]);
+    if(price!==null)updates.push({...item,price});
+    else failed.push(item);
+  });
+  if(failed.length===requestedRows.length&&failed.length>0){
+    throw new Error('현재가 서버가 모든 종목의 가격을 반환하지 못했습니다. 서버의 시세 수집 상태를 확인해야 합니다. 기존 입력값은 유지됩니다.');
+  }
+  if(failed.length>0){
+    const names=failed.slice(0,3).map(item=>`${item.name} (${item.code})`).join(', ');
+    throw new Error(`현재가를 확인하지 못한 종목: ${names}${failed.length>3?' 외':''}. 일부 가격만 섞이지 않도록 이번 조회는 적용하지 않았습니다. 기존 입력값은 유지됩니다.`);
+  }
+  return updates;
 }
 
 function renderFetchUi(){
@@ -2152,11 +2198,11 @@ function renderFetchUi(){
   const fetchState=priceFetchStateByTab[tab];
   const pending=!!fetchState?.pending;
   btn.disabled=pending;
-  loadingEl.textContent=fetchState?.slow
-    ? '⏳ 서버 깨우는 중... 잠시만 기다려주세요 (약 1분)'
+  loadingEl.textContent=fetchState?.retrying?'연결이 원활하지 않아 한 번 더 조회하고 있습니다.':fetchState?.slow
+    ? '⏳ 서버 응답이 지연되고 있습니다. 시세 확인을 기다리는 중입니다.'
     : '⏳ 현재가를 불러오는 중입니다.';
   loadingEl.style.display=pending?'inline':'none';
-  lastTimeEl.textContent=pending?'':fetchTimeText(state[tab].priceFetchedAt,state[tab].priceSourceAt);
+  lastTimeEl.textContent=pending?'':fetchTimeText(state[tab].priceFetchedAt,state[tab].priceSourceAt,state[tab].priceMarketStatus);
 
   if(pending)btn.textContent='⏳ 불러오는 중...';
   else if(fetchState?.successUntil>Date.now())btn.textContent=`✅ ${fetchState.successCount}개 완료`;
@@ -2208,21 +2254,13 @@ async function fetchAllPrices(){
 
   try{
     const codes=requestedRows.map(item=>item.code);
-    const res=await fetch(`${SERVER}/prices?codes=${encodeURIComponent(codes.join(','))}`,{cache:'no-store',signal:controller.signal});
-    if(!res.ok)throw new Error(`현재가 서버 응답 오류 (${res.status})`);
-    const data=await res.json();
+    const data=await fetchPricesWithRetry(`${SERVER}/prices?details=1&codes=${encodeURIComponent(codes.join(','))}`,controller.signal,()=>{
+      const current=priceFetchStateByTab[requestTab];
+      if(current?.requestId===requestId){current.retrying=true;if(tab===requestTab)renderFetchUi();}
+    });
     const payload=parsePricePayload(data);
 
-    const updates=[];
-    const failed=[];
-    requestedRows.forEach(item=>{
-      const price=getSafePositiveNumber(payload.prices[item.code]);
-      if(price!==null)updates.push({...item,price});
-      else failed.push(item.name);
-    });
-    if(failed.length>0){
-      throw new Error(`현재가를 확인하지 못한 종목: ${failed.slice(0,3).join(', ')}${failed.length>3?' 외':''}`);
-    }
+    const updates=validateRequestedPrices(payload.prices,requestedRows);
 
     const fetchState=priceFetchStateByTab[requestTab];
     if(!fetchState||fetchState.requestId!==requestId)return;
@@ -2231,6 +2269,7 @@ async function fetchAllPrices(){
     const now=new Date().toISOString();
     s.priceFetchedAt=updates.length===s.etfs.length?now:'';
     s.priceSourceAt=updates.length===s.etfs.length?payload.sourceAt:'';
+    s.priceMarketStatus=payload.marketStatus;
     fetchState.pending=false;
     fetchState.slow=false;
     fetchState.successCount=updates.length;
