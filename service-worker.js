@@ -1,4 +1,4 @@
-const CACHE_NAME = 'etf-rebalancing-v21';
+const CACHE_NAME = 'etf-rebalancing-v22';
 const APP_SHELL = [
   './',
   './index.html',
