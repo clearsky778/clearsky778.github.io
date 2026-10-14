@@ -156,7 +156,12 @@ tr.row-danger:hover td{background:#ffeaea;}
 .plan-group-title.sell{color:var(--danger);}
 .plan-group-title.buy{color:var(--accent);}
 .plan-group-total{font-family:'DM Mono',monospace;font-weight:500;color:var(--text2);}
-.plan-row{display:grid;grid-template-columns:76px 1fr 86px 120px;gap:10px;align-items:center;padding:11px 14px;border-bottom:1px solid var(--border);font-size:13px;}
+.plan-row{display:grid;grid-template-columns:44px 76px minmax(0,1fr) 86px 120px;gap:10px;align-items:center;padding:11px 14px;border-bottom:1px solid var(--border);font-size:13px;}
+.order-check{display:flex;align-items:center;justify-content:center;min-width:44px;min-height:44px;cursor:pointer;}
+.order-check input{width:22px;height:22px;accent-color:var(--accent);cursor:pointer;}
+.order-check input:focus-visible{outline:2px solid var(--accent);outline-offset:4px;}
+.plan-row.checked{background:#edf5ef;}
+.plan-row.checked .plan-name strong{text-decoration:line-through;color:var(--text2);}
 .plan-row:last-child{border-bottom:none;}
 .plan-side{font-size:11px;font-weight:700;text-align:center;border-radius:999px;padding:4px 8px;}
 .plan-side.buy{background:var(--accent-light);color:var(--accent);}
@@ -314,8 +319,9 @@ footer{text-align:center;padding:2rem;font-size:12px;color:var(--text3);border-t
   .plan-head{display:block;}
   .plan-actions{justify-content:stretch;margin-top:12px;}
   .plan-btn{flex:1;text-align:center;padding:10px 8px;}
-  .plan-row{grid-template-columns:58px 1fr 64px;gap:8px;padding:11px 12px;}
-  .plan-amount{grid-column:2 / 4;text-align:left;font-size:12px;}
+  .plan-row{grid-template-columns:44px 48px minmax(0,1fr) 60px;gap:6px;padding:11px 10px;}
+  .order-check{grid-row:1 / 3;}
+  .plan-amount{grid-column:3 / 5;text-align:left;font-size:12px;}
   /* 경고배너 */
   .alert-box{font-size:12px;}
 
@@ -515,7 +521,7 @@ footer{text-align:center;padding:2rem;font-size:12px;color:var(--text3);border-t
   .plan-meta{gap:6px;margin-bottom:10px;}
   .plan-chip{font-size:10px;padding:4px 7px;}
   .plan-guide{font-size:11px;padding:7px 8px;}
-  .plan-row{grid-template-columns:52px 1fr 58px;gap:7px;padding:10px 10px;}
+  .plan-row{grid-template-columns:44px 42px minmax(0,1fr) 58px;gap:5px;padding:10px 8px;}
   .plan-side{font-size:10px;padding:4px 6px;}
   .plan-name strong{font-size:12px;}
   .plan-code{font-size:10px;}
@@ -780,7 +786,7 @@ footer{text-align:center;padding:2rem;font-size:12px;color:var(--text3);border-t
 <div class="toast" id="toast" role="status" aria-live="polite">저장됐습니다</div>
 <footer>
   개인 투자 참고용 계산기입니다. 예상금액에는 체결가 변동과 수수료가 반영되지 않을 수 있으며, 투자 판단의 최종 책임은 본인에게 있습니다.
-  <span class="app-version">앱 버전 v2026.09.12.21</span>
+  <span class="app-version">앱 버전 v2026.10.14.22</span>
 </footer>
 
 <script>
@@ -1072,7 +1078,7 @@ function formatOrderPlanText(plan){
     if(items.length===0)return;
     const total=items.reduce((sum,o)=>sum+o.estimatedAmount,0);
     lines.push('', `[${label}] ${items.length}건 / ${fmt(total)}`);
-    items.forEach(o=>lines.push(`${o.code} ${o.name} ${o.orderQuantity.toLocaleString('ko-KR')}주 · 기준가 ${fmt(o.price)} · 예상 ${fmt(o.estimatedAmount)}`));
+    items.forEach(o=>lines.push(`[${o.completed?'완료':'미완료'}] ${o.code} ${o.name} ${o.orderQuantity.toLocaleString('ko-KR')}주 · 기준가 ${fmt(o.price)} · 예상 ${fmt(o.estimatedAmount)}`));
   });
   return lines.join('\n');
 }
@@ -1261,6 +1267,7 @@ function syncOrderPlanAutomation(){
 }
 
 function autoCreateOrderPlan(){
+  if(activeOrderPlan&&activeOrderPlan.inputSignature===getPlanInputSignature())return;
   const readiness=getPlanReadiness();
   if(!readiness.ready)return;
   if(isFetchedAtStale(getPriceFreshnessAt(state[tab])))return;
@@ -1857,6 +1864,7 @@ function buildOrderPlan(){
       currentAmount:Math.round(currentAmount),
       diffAmount:Math.round(diffAmount),
       orderQuantity:orderQty,
+      completed:false,
       estimatedAmount:Math.round(estimatedAmount)
     });
   });
@@ -1893,6 +1901,8 @@ function buildOrderPlan(){
 
 function createOrderPlan(){
   try{
+    clearTimeout(autoOrderPlanTimer);
+    if(hasCheckedOrders()&&!confirm('새 주문안을 생성하면 기존 완료 체크가 초기화됩니다. 다시 생성할까요?'))return;
     const readiness=getPlanReadiness();
     if(!readiness.ready){
       clearOrderPlan();
@@ -1968,11 +1978,31 @@ async function copyCode(code,event){
   }
 }
 
+function hasCheckedOrders(idx=tab){
+  return !!loadOrderPlan(idx)?.orders.some(o=>o.completed);
+}
+
+function toggleOrderCompleted(index,completed){
+  const plan=activeOrderPlan;
+  if(!plan||plan.tab!==tab||!Number.isInteger(index)||!plan.orders[index])return;
+  if(completed)invalidatePriceFetch(tab);
+  plan.orders[index].completed=!!completed;
+  if(!completed&&plan.status==='completed')plan.status='pending';
+  plan.updatedAt=new Date().toISOString();
+  saveOrderPlan(plan);
+  updateAutoCountdown();
+  document.getElementById(`order-check-${index}`)?.focus({preventScroll:true});
+}
+
 function setPlanStatus(status){
   if(!activeOrderPlan){
     activeOrderPlan=loadOrderPlan(tab);
   }
   if(!activeOrderPlan){alert('먼저 주문안을 생성해주세요.');return;}
+  if(status==='completed'&&activeOrderPlan.orders.some(o=>!o.completed)){
+    alert('아직 체크하지 않은 주문이 있습니다. 각 항목을 확인하고 체크해주세요.');
+    return;
+  }
   activeOrderPlan={...activeOrderPlan,status,updatedAt:new Date().toISOString()};
   saveOrderPlan(activeOrderPlan);
   showSaved(statusText(status)+' 상태로 저장됐습니다');
@@ -1988,8 +2018,13 @@ function renderOrderPlan(message){
     return;
   }
   const rowHtml=o=>`
-    <div class="plan-row">
-      <div class="plan-side ${o.side}">${o.side==='buy'?'매수':'매도'}</div>
+    <div class="plan-row${o.completed?' checked':''}">
+      <label class="order-check" title="주문 완료 표시">
+        <input type="checkbox" id="order-check-${plan.orders.indexOf(o)}" ${o.completed?'checked':''}
+          aria-label="${esc(o.name)} ${o.side==='buy'?'매수':'매도'} ${o.orderQuantity}주 주문 완료 표시"
+          onchange="toggleOrderCompleted(${plan.orders.indexOf(o)},this.checked)">
+      </label>
+      <div class="plan-side ${o.side}">${o.side==='buy'?'매수':'매도'}${o.completed?'<br>완료':''}</div>
       <div class="plan-name">
         <strong>${esc(o.name)}</strong>
         <div class="plan-code-row">
@@ -2008,7 +2043,7 @@ function renderOrderPlan(message){
     return `
       <div class="plan-group">
         <div class="plan-group-title ${side}">
-          <span>${label} ${items.length}건</span>
+          <span>${label} ${items.length}건 · 완료 ${items.filter(o=>o.completed).length}/${items.length}</span>
           <span class="plan-group-total">${fmt(total)}</span>
         </div>
         ${items.map(rowHtml).join('')}
@@ -2029,6 +2064,7 @@ function renderOrderPlan(message){
       <span class="plan-chip">${esc(priceBasisText(plan))}</span>
       ${isPriceBasisStale(plan)?'<span class="plan-chip status-chip approved">현재가 30분 초과</span>':''}
       <span class="plan-chip">총 ${plan.orders.length}건</span>
+      <span class="plan-chip" role="status">완료 표시 ${plan.orders.filter(o=>o.completed).length}/${plan.orders.length}건</span>
       <span class="plan-chip">예상 순주문 ${(plan.tradeSum<0?'−':'')+fmt(Math.abs(plan.tradeSum))}</span>
     </div>
     ${staleGuide}${guide}
@@ -2063,6 +2099,7 @@ function clearAutoRefreshTimers(){
 function updateAutoCountdown(){
   const status=document.getElementById('autoStatus');
   if(!status||autoSeconds<=0||!nextAutoRefreshAt){if(status)status.textContent='';return;}
+  if(hasCheckedOrders()){status.textContent='완료 체크가 있어 자동갱신 일시중지';return;}
   const remaining=Math.max(0,Math.ceil((nextAutoRefreshAt-Date.now())/1000));
   const m=Math.floor(remaining/60);
   const s=remaining%60;
@@ -2076,7 +2113,7 @@ function scheduleAutoRefresh(){
   updateAutoCountdown();
   countdownTimer=setInterval(updateAutoCountdown,1000);
   autoTimer=setTimeout(async()=>{
-    await fetchAllPrices();
+    await fetchAllPrices({automatic:true});
     if(autoSeconds>0)scheduleAutoRefresh();
   },autoSeconds*1000);
 }
@@ -2107,7 +2144,7 @@ async function setAutoRefresh(val){
 
   sel.classList.add('active');
   const selectedSeconds=autoSeconds;
-  await fetchAllPrices();
+  await fetchAllPrices({automatic:true});
   if(autoSeconds===selectedSeconds)scheduleAutoRefresh();
 }
 
@@ -2225,10 +2262,14 @@ function invalidatePriceFetch(idx){
   return true;
 }
 
-async function fetchAllPrices(){
+async function fetchAllPrices({automatic=false}={}){
   const requestTab=tab;
   const s=state[requestTab];
   if(priceFetchStateByTab[requestTab]?.pending)return;
+  if(hasCheckedOrders(requestTab)){
+    if(automatic)return;
+    if(!confirm('현재가를 갱신하면 주문안이 바뀌고 완료 체크가 초기화될 수 있습니다. 계속할까요?'))return;
+  }
 
   const etfValidation=validateEtfList(s.etfs);
   if(!etfValidation.valid){alert(etfValidation.message);return;}
@@ -2321,7 +2362,7 @@ async function refreshAfterResume(){
   syncOrderPlanAutomation();
   if(autoSeconds<=0)return;
   if(!nextAutoRefreshAt||Date.now()>=nextAutoRefreshAt){
-    await fetchAllPrices();
+    await fetchAllPrices({automatic:true});
     if(autoSeconds>0)scheduleAutoRefresh();
   }else{
     updateAutoCountdown();
